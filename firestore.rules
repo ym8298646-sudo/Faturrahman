@@ -1,0 +1,268 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint: UserProfile
+    function isValidUser(data, userId) {
+      return data.keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'displayName', 'email', 'createdAt', 'updatedAt'])
+        && data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.userId.size() <= 128
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 100
+        && (!('email' in data) || (data.email is string && data.email.size() <= 200))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: UserPreferences
+    function isValidPreferences(data, userId) {
+      return data.keys().hasAll(['userId', 'darkMode', 'reminderEnabled', 'reminderTime', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'darkMode', 'reminderEnabled', 'reminderTime', 'reminderMessage', 'currency', 'updatedAt'])
+        && data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.userId.size() <= 128
+        && data.darkMode is bool
+        && data.reminderEnabled is bool
+        && data.reminderTime is string
+        && data.reminderTime.size() == 5
+        && data.reminderTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && (!('reminderMessage' in data) || (data.reminderMessage is string && data.reminderMessage.size() <= 160))
+        && (!('currency' in data) || (data.currency in ['IDR', 'USD']))
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Category
+    function isValidCategory(data, userId, categoryId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'type', 'color', 'icon', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'type', 'color', 'icon', 'isDefault', 'monthlyBudget', 'createdAt', 'updatedAt'])
+        && data.id is string
+        && data.id == categoryId
+        && data.id.size() <= 128
+        && data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.userId.size() <= 128
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 48
+        && data.type in ['income', 'expense']
+        && data.color is string
+        && data.color.size() >= 4
+        && data.color.size() <= 9
+        && data.color.matches('^#[0-9a-fA-F]{3,8}$')
+        && data.icon is string
+        && data.icon.size() >= 1
+        && data.icon.size() <= 32
+        && (!('isDefault' in data) || data.isDefault is bool)
+        && (!('monthlyBudget' in data) || (data.monthlyBudget is number && data.monthlyBudget >= 0 && data.monthlyBudget <= 1000000000000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: WalletAccount
+    function isValidWallet(data, userId, walletId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'kind', 'initialBalance', 'color', 'icon', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'kind', 'initialBalance', 'color', 'icon', 'isDefault', 'createdAt', 'updatedAt'])
+        && data.id is string
+        && data.id == walletId
+        && data.id.size() <= 128
+        && data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.userId.size() <= 128
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 48
+        && data.kind in ['cash', 'ewallet', 'bank', 'savings']
+        && data.initialBalance is number
+        && data.initialBalance >= 0
+        && data.initialBalance <= 1000000000000
+        && data.color is string
+        && data.color.size() >= 4
+        && data.color.size() <= 9
+        && data.color.matches('^#[0-9a-fA-F]{3,8}$')
+        && data.icon is string
+        && data.icon.size() >= 1
+        && data.icon.size() <= 32
+        && (!('isDefault' in data) || data.isDefault is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Transaction
+    function isValidTransaction(data, userId, transactionId) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'amount', 'categoryId', 'categoryName', 'date', 'time', 'note', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'type', 'amount', 'categoryId', 'categoryName', 'walletId', 'walletName', 'toWalletId', 'toWalletName', 'date', 'time', 'note', 'paymentMethod', 'createdAt', 'updatedAt'])
+        && data.id is string
+        && data.id == transactionId
+        && data.id.size() <= 128
+        && data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.userId.size() <= 128
+        && data.type in ['income', 'expense', 'transfer']
+        && data.amount is number
+        && data.amount > 0
+        && data.amount <= 1000000000000
+        && data.categoryId is string
+        && data.categoryId.size() >= 1
+        && data.categoryId.size() <= 128
+        && data.categoryId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.categoryName is string
+        && data.categoryName.size() >= 1
+        && data.categoryName.size() <= 48
+        && (!('walletId' in data) || (data.walletId is string && data.walletId.size() >= 1 && data.walletId.size() <= 128 && data.walletId.matches('^[a-zA-Z0-9_\\-]+$')))
+        && (!('walletName' in data) || (data.walletName is string && data.walletName.size() >= 1 && data.walletName.size() <= 48))
+        && (!('toWalletId' in data) || (data.toWalletId is string && data.toWalletId.size() >= 1 && data.toWalletId.size() <= 128 && data.toWalletId.matches('^[a-zA-Z0-9_\\-]+$')))
+        && (!('toWalletName' in data) || (data.toWalletName is string && data.toWalletName.size() >= 1 && data.toWalletName.size() <= 48))
+        && data.date is string
+        && data.date.size() == 10
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.time is string
+        && data.time.size() == 5
+        && data.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.note is string
+        && data.note.size() <= 500
+        && (!('paymentMethod' in data) || (data.paymentMethod in ['Tunai', 'Transfer Bank', 'QRIS / E-Wallet', 'Kartu Debit/Kredit']))
+        && (data.type != 'transfer' || ('walletId' in data && 'toWalletId' in data && data.walletId != data.toWalletId))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUser(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUser(incoming(), userId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt']);
+      allow delete: if false;
+
+      match /settings/{settingId} {
+        allow get: if isValidId(userId) && isValidId(settingId) && settingId == 'preferences' && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(settingId)
+          && settingId == 'preferences'
+          && isOwner(userId)
+          && isValidPreferences(incoming(), userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId)
+          && isValidId(settingId)
+          && settingId == 'preferences'
+          && isOwner(userId)
+          && isValidPreferences(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['darkMode', 'reminderEnabled', 'reminderTime', 'reminderMessage', 'currency', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /categories/{categoryId} {
+        allow get: if isValidId(userId) && isValidId(categoryId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(categoryId)
+          && isOwner(userId)
+          && isValidCategory(incoming(), userId, categoryId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId)
+          && isValidId(categoryId)
+          && isOwner(userId)
+          && isValidCategory(incoming(), userId, categoryId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'type', 'color', 'icon', 'isDefault', 'monthlyBudget', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(categoryId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+      }
+
+      match /wallets/{walletId} {
+        allow get: if isValidId(userId) && isValidId(walletId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(walletId)
+          && isOwner(userId)
+          && isValidWallet(incoming(), userId, walletId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId)
+          && isValidId(walletId)
+          && isOwner(userId)
+          && isValidWallet(incoming(), userId, walletId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'kind', 'initialBalance', 'color', 'icon', 'isDefault', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(walletId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+      }
+
+      match /transactions/{transactionId} {
+        allow get: if isValidId(userId) && isValidId(transactionId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(transactionId)
+          && isOwner(userId)
+          && isValidTransaction(incoming(), userId, transactionId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId)
+          && isValidId(transactionId)
+          && isOwner(userId)
+          && isValidTransaction(incoming(), userId, transactionId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'amount', 'categoryId', 'categoryName', 'walletId', 'walletName', 'toWalletId', 'toWalletName', 'date', 'time', 'note', 'paymentMethod', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(transactionId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+      }
+    }
+  }
+}

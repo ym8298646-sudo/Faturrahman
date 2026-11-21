@@ -1,0 +1,6 @@
+{
+  "name": "KasHarian — Catatan Keuangan Harian",
+  "description": "Aplikasi pencatat pengeluaran dan pemasukan uang harian dengan grafik statistik, ekspor laporan PDF, pengingat harian, sinkronisasi cloud, mode gelap, keamanan biometrik, kategori kustom, dan kalkulator bawaan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
